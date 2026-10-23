@@ -1,0 +1,14 @@
+{
+  "name": "shove-off",
+  "private": true,
+  "type": "module",
+  "description": "Shove Off: a 1v1 sumo brawler on a crumbling ice floe. Local 2P and online rooms. No dependencies.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/server.mjs",
+    "test": "node --test --test-timeout=300000 'tests/*.test.mjs'",
+    "test:quick": "node --test tests/sim.test.mjs tests/rules.test.mjs tests/project.test.mjs",
+    "bots": "node tools/bot-match.mjs",
+    "rates": "node tools/rate-sweep.mjs"
+  }
+}

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- CSP first: a meta policy only covers what comes after it. Sockets go only to
+       this page's own server: localhost while you play here, *.ts.net through Tailscale. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws://localhost:* ws://127.0.0.1:* wss://*.ts.net; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#133b4f">
+  <!-- Add to Home Screen: opens full screen like an app, with its own icon and name. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Shove Off">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="description" content="Shove Off: a 1v1 sumo brawler on a crumbling ice floe. Play the computer, two players on one keyboard, or online with a room code.">
+  <title>Shove Off</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231d5874'/%3E%3Ccircle cx='24' cy='34' r='14' fill='%23ff6b57' stroke='%2316202e' stroke-width='4'/%3E%3Ccircle cx='44' cy='28' r='12' fill='%2317a597' stroke='%2316202e' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/game.css">
+  <link rel="modulepreload" href="js/main.js">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <main class="app">
+    <div class="stage" id="stage">
+      <canvas id="game" role="img" aria-label="The ice floe. Coral and Teal wrestle on hexagon tiles over dark water."></canvas>
+
+      <div class="hud" id="hud" hidden aria-hidden="true">
+        <div class="hud-side hud-p0">
+          <span class="hud-badge">1</span>
+          <span class="hud-name" id="hud-name0">Coral</span>
+          <span class="pips" data-pips="0"><i></i><i></i><i></i></span>
+        </div>
+        <div class="hud-mid">
+          <span class="hud-round" id="hud-round">Round 1</span>
+          <span class="hud-clock" id="hud-clock">0:00</span>
+        </div>
+        <div class="hud-side hud-p1">
+          <span class="pips" data-pips="1"><i></i><i></i><i></i></span>
+          <span class="hud-name" id="hud-name1">Teal</span>
+          <span class="hud-badge">2</span>
+        </div>
+      </div>
+      <div class="netline" id="netline" hidden></div>
+      <div class="banner" id="banner" hidden aria-hidden="true"></div>
+
+      <!-- Touch controls (js/touch.js). The whole layer is the touch surface: the left
+           half of each player's pad is a floating stick, the right half is DASH. Two
+           pads when two players share the screen, each turned toward its player. -->
+      <div class="touch" id="touch" data-layout="solo" hidden aria-hidden="true">
+        <div class="tpad" data-slot="0">
+          <div class="tpad-hud"><span class="hud-badge">1</span><span class="tpad-name" data-name="0">Coral</span><span class="pips" data-pips="0"><i></i><i></i><i></i></span></div>
+          <p class="tpad-banner"></p>
+          <span class="tpad-ghost"><span>Drag here<br>to move</span></span>
+          <span class="tpad-dash" data-dash="0"><svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="45"/><circle class="ring" cx="50" cy="50" r="45" pathLength="100"/></svg><b>DASH</b><small>tap · hold</small></span>
+        </div>
+        <div class="tpad" data-slot="1">
+          <div class="tpad-hud"><span class="hud-badge">2</span><span class="tpad-name" data-name="1">Teal</span><span class="pips" data-pips="1"><i></i><i></i><i></i></span></div>
+          <p class="tpad-banner"></p>
+          <span class="tpad-ghost"><span>Drag here<br>to move</span></span>
+          <span class="tpad-dash" data-dash="1"><svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="45"/><circle class="ring" cx="50" cy="50" r="45" pathLength="100"/></svg><b>DASH</b><small>tap · hold</small></span>
+        </div>
+        <span class="tstick" data-stick="0"><span class="tknob"></span></span>
+        <span class="tstick" data-stick="1"><span class="tknob"></span></span>
+      </div>
+
+      <!-- Always reachable while playing: sound (the iPhone's silent switch can't be
+           read, so the game has its own) and pause. -->
+      <div class="corner" id="corner" hidden>
+        <button type="button" class="round-btn" id="btn-sound" data-act="sound" aria-label="Sound" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9h4l5-4v14l-5-4H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="cross" d="M16 9l6 6M22 9l-6 6"/></svg></button>
+        <button type="button" class="round-btn" id="btn-pause" data-act="pause" aria-label="Pause"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg></button>
+      </div>
+
+      <!-- Title -->
+      <section class="screen" id="scr-title" aria-labelledby="title-h" hidden>
+        <div class="panel panel-title">
+          <div class="title-art">
+            <h1 class="logo" id="title-h"><span>Shove</span> <span>Off</span></h1>
+            <p class="promise">Shove your friend off a crumbling ice floe before they shove you.</p>
+            <canvas class="strip" id="strip" width="420" height="140" role="img" aria-label="Three pictures: Coral charges with a glowing ring, launches into Teal, and Teal goes flying."></canvas>
+          </div>
+          <div class="title-menu">
+          <div class="menu" role="group" aria-label="Start">
+            <button type="button" class="btn btn-primary" data-act="solo">Play vs Computer <small>No friend needed</small></button>
+            <button type="button" class="btn" data-act="rejoin" id="btn-rejoin" hidden>Rejoin room <span id="rejoin-code"></span> <small>Your seat is still being held</small></button>
+            <button type="button" class="btn" data-act="play2p">2 players here <small id="sub-2p">One keyboard or two controllers</small></button>
+            <button type="button" class="btn" data-act="online">Online <small>Make or join a room</small></button>
+            <div class="menu-pair">
+              <button type="button" class="btn btn-quiet" data-act="settings">Settings</button>
+              <button type="button" class="btn btn-quiet sound-btn" data-act="sound" aria-label="Sound" aria-pressed="true">Sound <span class="sound-state">on</span></button>
+            </div>
+          </div>
+          <p class="hint" id="pad-hint">or press <kbd>A</kbd> on a controller</p>
+          <p class="rivalry" id="title-rivalry" hidden></p>
+          <p class="rivalry rivalry-solo" id="title-solo" hidden></p>
+          <p class="keys"><kbd>M</kbd> mutes · <kbd>Esc</kbd> pauses</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Play vs Computer: pick an opponent -->
+      <section class="screen" id="scr-cpu" aria-labelledby="cpu-h" hidden>
+        <div class="panel panel-wide panel-cpu">
+          <h2 id="cpu-h">Pick your opponent</h2>
+          <p class="sub">You're Coral. First to 3 ring-outs wins.</p>
+          <div class="foes" id="cpu-list" role="group" aria-label="Opponents"></div>
+          <p class="status" id="cpu-status" role="status"></p>
+          <div class="menu menu-row">
+            <button type="button" class="btn btn-quiet" data-act="back">Back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pause (local) and the in-match menu (online) -->
+      <section class="screen" id="scr-pause" aria-labelledby="pause-h" hidden>
+        <div class="panel">
+          <h2 id="pause-h">Paused</h2>
+          <p class="sub" id="pause-sub"></p>
+          <div class="menu">
+            <button type="button" class="btn btn-primary" data-act="resume">Resume</button>
+            <button type="button" class="btn" data-act="restart" id="pause-restart">Restart match</button>
+            <div class="menu-pair">
+              <button type="button" class="btn" data-act="settings">Settings</button>
+              <button type="button" class="btn sound-btn" data-act="sound" aria-label="Sound" aria-pressed="true">Sound <span class="sound-state">on</span></button>
+            </div>
+            <button type="button" class="btn btn-quiet" data-act="quit" id="pause-quit">Quit to title</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="screen" id="scr-settings" aria-labelledby="settings-h" hidden>
+        <div class="panel panel-wide">
+          <h2 id="settings-h">Settings</h2>
+          <div class="settings">
+            <label class="row"><span>Volume</span><input type="range" id="set-volume" min="0" max="100" step="5"></label>
+            <label class="row check"><input type="checkbox" id="set-mute"><span>Mute all sound <kbd>M</kbd></span></label>
+            <label class="row"><span>Motion</span>
+              <select id="set-motion">
+                <option value="system">Follow my system</option>
+                <option value="reduce">Reduce motion</option>
+                <option value="full">Full motion</option>
+              </select>
+            </label>
+            <label class="row"><span>Screen shake</span><input type="range" id="set-shake" min="0" max="100" step="10"></label>
+            <p class="note" id="motion-note">Reduced motion turns off screen shake, slow motion and afterimages, and marks cracking ice with a pattern instead of a wobble.</p>
+            <label class="row"><span>Touch controls</span>
+              <select id="set-touch">
+                <option value="auto">Show when I touch the screen</option>
+                <option value="on">Always show</option>
+                <option value="off">Never show</option>
+              </select>
+            </label>
+            <label class="row check"><input type="checkbox" id="set-swap"><span>Left-handed: DASH on the left, stick on the right</span></label>
+            <label class="row"><span>Touch control size</span>
+              <select id="set-tsize">
+                <option value="s">Small</option>
+                <option value="m">Medium</option>
+                <option value="l">Large</option>
+              </select>
+            </label>
+            <label class="row"><span>Stick</span>
+              <select id="set-stick">
+                <option value="float">Floating: appears where your thumb lands</option>
+                <option value="fixed">Fixed: always in the same spot</option>
+              </select>
+            </label>
+            <label class="row check"><input type="checkbox" id="set-easy"><span>Easy charge: tap DASH to start charging, tap again to launch</span></label>
+            <label class="row check" id="row-music" hidden><input type="checkbox" id="set-music"><span>Play over my music (follows the silent switch)</span></label>
+            <label class="row check" id="row-haptics" hidden><input type="checkbox" id="set-haptics"><span>Vibrate on hits</span></label>
+            <label class="row"><span>Your name online</span><input type="text" id="set-name" maxlength="12" autocomplete="nickname" spellcheck="false" placeholder="Coral or Teal"></label>
+          </div>
+          <h3>Controls</h3>
+          <p class="note">Pick a control, then press the key you want. Esc cancels. Shift is never used.</p>
+          <div class="binds" id="binds" role="group" aria-label="Key bindings"></div>
+          <p class="note" id="bind-msg" role="status"></p>
+          <div class="menu menu-row">
+            <button type="button" class="btn btn-primary" data-act="back">Done</button>
+            <button type="button" class="btn btn-quiet" data-act="resetkeys">Reset keys</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Online: make or join a room -->
+      <section class="screen" id="scr-online" aria-labelledby="online-h" hidden>
+        <div class="panel">
+          <h2 id="online-h">Online</h2>
+          <p class="sub">Make a room and tell your friend the code, or type theirs.</p>
+          <div class="menu">
+            <button type="button" class="btn btn-primary" data-act="make">Make a room</button>
+          </div>
+          <form class="join" id="join-form" novalidate>
+            <label for="join-code">Room code</label>
+            <div class="join-row">
+              <input type="text" id="join-code" size="5" maxlength="9" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q0" inputmode="text">
+              <button type="submit" class="btn">Join</button>
+            </div>
+          </form>
+          <p class="status" id="online-status" role="status"></p>
+          <p class="note" id="online-where"></p>
+          <div class="menu">
+            <button type="button" class="btn btn-quiet" data-act="back">Back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Lobby -->
+      <section class="screen" id="scr-lobby" aria-labelledby="lobby-h" hidden>
+        <div class="panel">
+          <p class="eyebrow">Room code</p>
+          <h2 class="code" id="lobby-h" aria-label="Room code">----</h2>
+          <p class="sub" id="lobby-tell"></p>
+          <ul class="roster" id="lobby-roster"></ul>
+          <p class="status" id="lobby-status" role="status"></p>
+          <div class="menu">
+            <button type="button" class="btn" data-act="addcpu" id="lobby-cpu">No friend yet? Play the CPU</button>
+            <button type="button" class="btn btn-quiet" data-act="leave">Leave room</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Scoreboard -->
+      <section class="screen" id="scr-score" aria-labelledby="score-h" hidden>
+        <div class="panel panel-score">
+          <p class="eyebrow" id="score-eyebrow">Match over</p>
+          <h2 id="score-h" class="winner">Coral wins!</h2>
+          <p class="final" id="score-final">3 – 1</p>
+          <dl class="stats" id="score-stats"></dl>
+          <p class="rivalry" id="score-rivalry"></p>
+          <p class="status" id="score-status" role="status"></p>
+          <div class="menu">
+            <button type="button" class="btn btn-primary" data-act="rematch" id="score-rematch">Rematch</button>
+            <button type="button" class="btn" data-act="next" id="score-next" hidden>Change opponent</button>
+            <button type="button" class="btn btn-quiet" data-act="quit" id="score-quit">Title</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- A new version was downloaded in the background (js/pwa.js). -->
+      <div class="toast" id="update" role="status" hidden>
+        <span>A new version of Shove Off is ready.</span>
+        <button type="button" class="btn btn-primary" data-act="update">Reload</button>
+      </div>
+
+      <!-- Messages -->
+      <section class="screen" id="scr-message" aria-labelledby="msg-h" hidden>
+        <div class="panel">
+          <h2 id="msg-h">Hmm</h2>
+          <p class="sub" id="msg-body"></p>
+          <div class="menu" id="msg-actions"></div>
+        </div>
+      </section>
+    </div>
+    <p class="controls-line" id="controls-line">Move: WASD / arrows. Hold Space or / to charge, let go to dash. Knock them off the ice.</p>
+    <details class="debug" id="debug" hidden>
+      <summary>TUNING (local play only)</summary>
+      <div id="debug-fields"></div>
+    </details>
+  </main>
+  <div class="sr-only" id="live" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="noscript">Shove Off needs JavaScript.</p></noscript>
+</body>
+</html>

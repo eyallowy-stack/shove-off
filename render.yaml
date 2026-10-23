@@ -1,0 +1,19 @@
+# Render Blueprint for the Shove Off room server (free web service).
+# The game page itself is on GitHub Pages; this only runs the online rooms.
+services:
+  - type: web
+    name: shove-off
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/server.mjs
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Render sends traffic to the port it chooses, on all interfaces.
+      - key: HOST
+        value: 0.0.0.0
+      # The GitHub Pages copy of the game may open room sockets here.
+      - key: ALLOWED_ORIGINS
+        value: https://eyallowy-stack.github.io
