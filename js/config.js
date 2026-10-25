@@ -3,4 +3,4 @@
 // GitHub Pages can't run a server, so it points at the room server on Render instead,
 // for example 'https://shove-off.onrender.com'. Add that host to connect-src in
 // index.html too.
-export const ROOM_SERVER = '';
+export const ROOM_SERVER = 'https://shove-off.onrender.com';
