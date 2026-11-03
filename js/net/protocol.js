@@ -28,6 +28,8 @@ export const CLOSE = {
   HELLO_TIMEOUT: 4008,
   REPLACED: 4009,
   BAD_VERSION: 4010,
+  SERVER_BUSY: 4011,
+  SLOW_READER: 4012,
 };
 
 // What the client should do after a close.
@@ -38,6 +40,8 @@ export function classifyClose(code) {
     case CLOSE.ROOM_FULL:
     case CLOSE.BAD_VERSION:
     case CLOSE.NOT_ALLOWED:
+    case CLOSE.SERVER_BUSY:
+    case CLOSE.SLOW_READER:
       return 'final';
     case CLOSE.CODE_TAKEN:
       return 'new-code';

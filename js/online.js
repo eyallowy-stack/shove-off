@@ -44,7 +44,11 @@ export const STATUS_TEXT = {
         ? 'The game was updated. Press Reload to get the new version.'
         : d?.code === 4004
           ? 'No room with that code. Check it, or make a new one.'
-          : 'That room has ended.',
+          : d?.code === 4011
+            ? d?.reason || 'The room server is busy. Try again later.'
+            : d?.code === 4012
+              ? 'Your connection could not keep up. Try joining again.'
+              : 'That room has ended.',
   unavailable: () => "The room server isn't answering. Check it's still running, then try again.",
   closed: () => 'Left the room.',
   blocked: () => "This page's Content-Security-Policy blocks the room server.",

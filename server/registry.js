@@ -5,9 +5,16 @@
 
 import { createRoom } from './room.js';
 import { GAMES as DEFAULT_GAMES } from './games.js';
+import { CLOSE } from '../js/net/protocol.js';
+import { envLimit } from './limits.js';
 
-export function createRegistry({ now = () => performance.now(), log = () => {}, games = DEFAULT_GAMES, roomOptions = {} } = {}) {
+export function createRegistry({
+  now = () => performance.now(), log = () => {}, games = DEFAULT_GAMES, roomOptions = {},
+  maxRooms = envLimit('MAX_ROOMS', 200),
+  roomCreationsPerMinute = envLimit('ROOM_CREATIONS_PER_MINUTE', 10),
+} = {}) {
   const rooms = new Map(); // "<game>/<code>" -> room
+  const creations = new Map(); // IP -> creation times in the last minute; never logged
 
   function get(game, code) {
     const key = `${game}/${code}`;
@@ -30,9 +37,29 @@ export function createRegistry({ now = () => performance.now(), log = () => {}, 
   }
 
   // Wire one transport connection to its room. Returns the two event handlers the
-  // adapter must call, or null for a game this server doesn't run.
-  function connect(game, code, conn) {
+  // adapter must call, or null for an unsupported game or a refused connection.
+  function connect(game, code, conn, ip = 'unknown') {
     if (!Object.hasOwn(games, game)) return null;
+    if (!rooms.has(`${game}/${code}`)) {
+      if (rooms.size >= maxRooms) {
+        conn.close(CLOSE.SERVER_BUSY, 'The room server is full. Try again later.');
+        return null;
+      }
+      const t = now();
+      // Prune every bucket, including IPs that never connect again.
+      for (const [address, times] of creations) {
+        const recent = times.filter((at) => t - at < 60000);
+        if (recent.length) creations.set(address, recent);
+        else creations.delete(address);
+      }
+      const times = creations.get(ip) ?? [];
+      if (times.length >= roomCreationsPerMinute) {
+        conn.close(CLOSE.SERVER_BUSY, 'Too many new rooms. Wait a minute and try again.');
+        return null;
+      }
+      times.push(t);
+      creations.set(ip, times);
+    }
     const room = get(game, code);
     room.open(conn);
     return {

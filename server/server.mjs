@@ -13,6 +13,11 @@
 //                    the whole network you're on.
 //   ALLOWED_ORIGINS  extra page origins allowed to open room sockets, comma-separated,
 //                    e.g. "https://my-laptop.tail1234.ts.net"
+//   MAX_ROOMS        default 200 (includes rooms waiting for a hello)
+//   MAX_SOCKETS      default 500 open room WebSockets
+//   ROOM_CREATIONS_PER_MINUTE  default 10 per IP (first X-Forwarded-For, else peer)
+//   MAX_OUTGOING_BYTES         default 1048576 queued bytes per WebSocket
+// Limits are positive integers; invalid values use their defaults.
 //
 // Server-only files (this folder, tests, tools) answer 404, as they would on a
 // published site. Logs carry room, tick and player id: never names or addresses.

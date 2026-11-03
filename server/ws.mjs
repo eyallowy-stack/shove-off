@@ -15,7 +15,8 @@
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { createRegistry } from './registry.js';
-import { parseRoomPath } from '../js/net/protocol.js';
+import { CLOSE, parseRoomPath } from '../js/net/protocol.js';
+import { envLimit } from './limits.js';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_FRAME = 16 * 1024; // a game message is a few hundred bytes
@@ -46,12 +47,22 @@ const refuse = (socket, status) => {
 };
 
 // Route /room/<game>/<code> upgrades on an existing http.Server to rooms.
-export function attachRooms(server, { registry, allowedOrigins, log = () => {} }) {
+export function attachRooms(server, {
+  registry, allowedOrigins, log = () => {},
+  maxSockets = envLimit('MAX_SOCKETS', 500),
+  maxOutgoingBytes = envLimit('MAX_OUTGOING_BYTES', 1024 * 1024),
+}) {
   const sockets = new Set();
   const allowed = new Set(allowedOrigins);
 
   server.on('upgrade', (req, socket) => {
-    const route = parseRoomPath(new URL(req.url, 'http://localhost').pathname);
+    socket.on('error', () => {});
+    let route;
+    try {
+      route = parseRoomPath(new URL(req.url, 'http://localhost').pathname);
+    } catch {
+      return refuse(socket, '400 Bad Request');
+    }
     const key = req.headers['sec-websocket-key'];
     const why =
       !route || !registry.has(route.game)
@@ -69,7 +80,8 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
     const accept = createHash('sha1').update(key + GUID).digest('base64');
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
     socket.setNoDelay(true);
-    sockets.add(socket);
+    const atCapacity = sockets.size >= maxSockets;
+    if (!atCapacity) sockets.add(socket);
 
     let closed = false;
     let sentClose = false;
@@ -78,7 +90,7 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
     const conn = {
       data: null,
       send(text) {
-        if (!closed && !sentClose) socket.write(frame(1, Buffer.from(text)));
+        write(1, Buffer.from(text));
       },
       close(c = 1000, reason = '') {
         if (closed || sentClose) return;
@@ -93,7 +105,27 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
         socket.destroy(); // no close frame: the client sees 1006, like a dropped network
       },
     };
-    const handlers = registry.connect(route.game, route.code, conn);
+    // Every data or control frame shares the same budget. Allow one small close
+    // frame through so a reader that catches up can learn why it was disconnected.
+    function write(opcode, payload) {
+      if (closed || sentClose) return;
+      const packet = frame(opcode, payload);
+      if (socket.writableLength + packet.length > maxOutgoingBytes) {
+        conn.close(CLOSE.SLOW_READER, 'Your connection could not keep up. Try joining again.');
+        socket.end();
+        return;
+      }
+      socket.write(packet);
+      if (socket.writableLength > maxOutgoingBytes) {
+        conn.close(CLOSE.SLOW_READER, 'Your connection could not keep up. Try joining again.');
+        socket.end();
+      }
+    }
+    socket.sendFrame = write;
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || socket.remoteAddress;
+    const handlers = atCapacity ? null : registry.connect(route.game, route.code, conn, ip);
+    if (atCapacity) conn.close(CLOSE.SERVER_BUSY, 'The room server has too many connections. Try again later.');
+    if (!handlers) socket.end();
 
     let buf = Buffer.alloc(0);
     let fragments = [];
@@ -138,14 +170,15 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
         if (opcode === 8) {
           closeCode = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
           if (!sentClose) {
+            write(8, payload.subarray(0, 2));
             sentClose = true;
-            socket.write(frame(8, payload.subarray(0, 2)));
           }
           socket.end();
           return;
         }
         if (opcode === 9) {
-          socket.write(frame(10, payload.subarray(0, 125)));
+          write(10, payload.subarray(0, 125));
+          if (sentClose) return;
           continue;
         }
         if (opcode === 10) continue;
@@ -159,6 +192,7 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
           fragments = [];
           fragmentBytes = 0;
           handlers.message(text);
+          if (sentClose) return;
         }
       }
     });
@@ -166,9 +200,8 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
       if (closed) return;
       closed = true;
       sockets.delete(socket);
-      handlers.close(closeCode);
+      handlers?.close(closeCode);
     });
-    socket.on('error', () => {});
   });
 
   // Browsers answer protocol pings in the network stack, even from a background tab,
@@ -180,7 +213,7 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
         continue;
       }
       s.alive = false;
-      s.write(frame(9, Buffer.alloc(0)));
+      s.sendFrame(9, Buffer.alloc(0));
     }
   }, HEARTBEAT_MS);
   heartbeat.unref();
@@ -189,21 +222,26 @@ export function attachRooms(server, { registry, allowedOrigins, log = () => {} }
 }
 
 // For tests: a server with rooms only, on a free port on 127.0.0.1.
-export function startTestServer({ port = 0, allowedOrigins = ['http://test.local'], roomOptions = {}, games, log = () => {} } = {}) {
-  const registry = createRegistry({ now: () => performance.now(), log, roomOptions, ...(games ? { games } : {}) });
+export function startTestServer({ port = 0, allowedOrigins = ['http://test.local'], roomOptions = {}, registryOptions = {}, socketOptions = {}, games, log = () => {} } = {}) {
+  const registry = createRegistry({ now: () => performance.now(), log, roomOptions, ...registryOptions, ...(games ? { games } : {}) });
   const server = http.createServer((req, res) => {
     res.writeHead(req.url === '/health' ? 200 : 404, { 'cache-control': 'no-store' });
     res.end(req.url === '/health' ? 'ok' : '');
   });
-  const sockets = attachRooms(server, { registry, allowedOrigins, log });
+  const sockets = attachRooms(server, { registry, allowedOrigins, log, ...socketOptions });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    server.once('error', (err) => {
+      server.close();
+      reject(err);
+    });
     server.listen(port, '127.0.0.1', () => {
       const { port: p } = server.address();
       resolve({
         url: (game, code) => `ws://127.0.0.1:${p}/room/${game}/${code}`,
         port: p,
         registry,
+        sockets,
         cutAll() {
           for (const s of sockets) s.destroy();
         },
